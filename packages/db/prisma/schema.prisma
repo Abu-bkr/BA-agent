@@ -1,0 +1,160 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ProjectStatus {
+  intake
+  interviewing
+  requirement_extraction
+  gap_analysis
+  risk_analysis
+  documentation
+  review
+  completed
+}
+
+enum ConversationRole {
+  agent
+  client
+}
+
+enum RequirementType {
+  functional
+  non_functional
+  business_rule
+}
+
+enum RequirementStatus {
+  draft
+  approved
+  rejected
+}
+
+enum RiskSeverity {
+  low
+  medium
+  high
+  critical
+}
+
+enum RiskCategory {
+  technical
+  business
+  timeline
+  budget
+}
+
+enum DocumentType {
+  BRD
+  SRS
+  user_stories
+  summary
+}
+
+model Project {
+  id           String        @id @default(cuid())
+  clientName   String
+  businessDomain String
+  rawIdeaText  String
+  status       ProjectStatus @default(intake)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  conversations ConversationTurn[]
+  requirements  Requirement[]
+  gaps          Gap[]
+  risks         Risk[]
+  documents     DocumentArtifact[]
+  reviewNotes   ReviewNote[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model ConversationTurn {
+  id        String           @id @default(cuid())
+  projectId String
+  role      ConversationRole
+  question  String
+  answer    String
+  agentSource String?
+  createdAt     DateTime      @default(now())
+  project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  requirements Requirement[]
+
+  @@index([projectId])
+  @@index([createdAt])
+}
+
+model Requirement {
+  id          String           @id @default(cuid())
+  projectId   String
+  type        RequirementType
+  text        String
+  sourceTurnId String?
+  status      RequirementStatus @default(draft)
+  project     Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sourceTurn  ConversationTurn? @relation(fields: [sourceTurnId], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+  @@index([sourceTurnId])
+  @@index([status])
+}
+
+model Gap {
+  id             String  @id @default(cuid())
+  projectId      String
+  description    String
+  resolved       Boolean @default(false)
+  resolutionText String?
+  project        Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([resolved])
+}
+
+model Risk {
+  id          String       @id @default(cuid())
+  projectId   String
+  description String
+  severity    RiskSeverity
+  mitigation  String?
+  category    RiskCategory
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([severity])
+  @@index([category])
+}
+
+model DocumentArtifact {
+  id             String       @id @default(cuid())
+  projectId      String
+  type           DocumentType
+  contentMarkdown String
+  version        Int          @default(1)
+  createdAt      DateTime     @default(now())
+  project        Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  reviewNotes    ReviewNote[]
+
+  @@index([projectId])
+  @@index([type])
+}
+
+model ReviewNote {
+  id        String           @id @default(cuid())
+  projectId String
+  artifactId String?
+  issue     String
+  resolved  Boolean          @default(false)
+  project   Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  artifact  DocumentArtifact? @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([artifactId])
+  @@index([resolved])
+}

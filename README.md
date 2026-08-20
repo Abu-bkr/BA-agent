@@ -1,159 +1,62 @@
-# Turborepo starter
+# AI Business Analyst
 
-This Turborepo starter is maintained by the Turborepo core team.
+A TypeScript Turborepo monorepo for the AI Business Analyst system.
 
-## Using this example
+## Structure
 
-Run the following command:
+- `apps/api` — Fastify API and Prisma-backed project CRUD routes
+- `apps/web` — Next.js frontend
+- `packages/db` — Prisma schema, migration, and singleton client
+- `packages/shared-types` — shared Zod schemas and TypeScript types
+- `packages/typescript-config` — shared strict TypeScript configurations
+- `packages/eslint-config` — shared ESLint configurations
 
-```sh
-npx create-turbo@latest
+## Local development
+
+Requirements: Node.js 18+, pnpm, and Docker Desktop.
+
+```bash
+pnpm install
+docker compose up -d postgres redis
+pnpm --filter @ai-business-analyst/db exec prisma migrate deploy
+pnpm dev
 ```
 
-## What's inside?
+The API is available at `http://localhost:4000`; health check: `GET /health`. The web app is available at `http://localhost:3000`.
 
-This Turborepo includes the following packages/apps:
+Environment variables for the API:
 
-### Apps and Packages
-
-- `docs`: a [Next.js](https://nextjs.org/) app
-- `web`: another [Next.js](https://nextjs.org/) app
-- `@repo/ui`: a stub React component library shared by both `web` and `docs` applications
-- `@repo/eslint-config`: `eslint` configurations (includes `eslint-config-next` and `eslint-config-prettier`)
-- `@repo/typescript-config`: `tsconfig.json`s used throughout the monorepo
-
-Each package/app is 100% [TypeScript](https://www.typescriptlang.org/).
-
-### Utilities
-
-This Turborepo has some additional tools already setup for you:
-
-- [TypeScript](https://www.typescriptlang.org/) for static type checking
-- [ESLint](https://eslint.org/) for code linting
-- [Prettier](https://prettier.io) for code formatting
-
-### Build
-
-To build all apps and packages, run the following command:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo build
+```env
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/ai_business_analyst
+REDIS_URL=redis://localhost:6379
+CHROMA_URL=http://localhost:8000
+MODEL_PROVIDER=openai
+OPENAI_API_KEY=
+ANTHROPIC_API_KEY=
 ```
 
-Without global `turbo`, use your package manager:
+## Tests
 
-```sh
-cd my-turborepo
-npx turbo build
-bun dlx turbo build
-bun exec turbo build
+Start the isolated test database and apply the migration:
+
+```bash
+docker compose up -d postgres-test
+$env:DATABASE_URL="postgresql://postgres:postgres@localhost:5433/ai_business_analyst_test"
+pnpm --filter @ai-business-analyst/db exec prisma migrate deploy
+pnpm --filter @ai-business-analyst/api test
 ```
 
-You can build a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
+On macOS/Linux, use:
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo build --filter=docs
+```bash
+DATABASE_URL=postgresql://postgres:postgres@localhost:5433/ai_business_analyst_test pnpm --filter @ai-business-analyst/api test
 ```
 
-Without global `turbo`:
+## Validation commands
 
-```sh
-npx turbo build --filter=docs
-bun exec turbo build --filter=docs
-bun exec turbo build --filter=docs
+```bash
+pnpm build
+pnpm typecheck
+pnpm lint
+pnpm test
 ```
-
-### Develop
-
-To develop all apps and packages, run the following command:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo dev
-```
-
-Without global `turbo`, use your package manager:
-
-```sh
-cd my-turborepo
-npx turbo dev
-bun exec turbo dev
-bun exec turbo dev
-```
-
-You can develop a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo dev --filter=web
-```
-
-Without global `turbo`:
-
-```sh
-npx turbo dev --filter=web
-bun exec turbo dev --filter=web
-bun exec turbo dev --filter=web
-```
-
-### Remote Caching
-
-> [!TIP]
-> Vercel Remote Cache is free for all plans. Get started today at [vercel.com](https://vercel.com/signup?utm_source=remote-cache-sdk&utm_campaign=free_remote_cache).
-
-Turborepo can use a technique known as [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching) to share cache artifacts across machines, enabling you to share build caches with your team and CI/CD pipelines.
-
-By default, Turborepo will cache locally. To enable Remote Caching you will need an account with Vercel. If you don't have an account you can [create one](https://vercel.com/signup?utm_source=turborepo-examples), then enter the following commands:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo login
-```
-
-Without global `turbo`, use your package manager:
-
-```sh
-cd my-turborepo
-npx turbo login
-bun exec turbo login
-bun exec turbo login
-```
-
-This will authenticate the Turborepo CLI with your [Vercel account](https://vercel.com/docs/concepts/personal-accounts/overview).
-
-Next, you can link your Turborepo to your Remote Cache by running the following command from the root of your Turborepo:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo link
-```
-
-Without global `turbo`:
-
-```sh
-npx turbo link
-bun exec turbo link
-bun exec turbo link
-```
-
-## Useful Links
-
-Learn more about the power of Turborepo:
-
-- [Tasks](https://turborepo.dev/docs/crafting-your-repository/running-tasks)
-- [Caching](https://turborepo.dev/docs/crafting-your-repository/caching)
-- [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching)
-- [Filtering](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters)
-- [Configuration Options](https://turborepo.dev/docs/reference/configuration)
-- [CLI Usage](https://turborepo.dev/docs/reference/command-line-reference)
