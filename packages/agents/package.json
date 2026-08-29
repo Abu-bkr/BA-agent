@@ -1,0 +1,33 @@
+{
+  "name": "@ai-business-analyst/agents",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./memory": "./dist/memory/index.js",
+    "./tools": "./dist/tools/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ai-business-analyst/db": "workspace:*",
+    "@langchain/core": "^1.2.9",
+    "chromadb": "^3.1.6",
+    "ioredis": "^5.6.1",
+    "openai": "^5.12.2",
+    "pdf-parse": "^2.4.5",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "workspace:*",
+    "@types/node": "^22.15.3",
+    "typescript": "5.9.2",
+    "vitest": "^3.1.2"
+  }
+}
