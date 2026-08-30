@@ -6,4 +6,4 @@ Add production-readiness on top of the working system:
 4. Error handling: agent/LLM failures should degrade gracefully (return a clear "please rephrase" rather than a 500) and never leave the LangGraph checkpoint in a broken state.
 5. docker-compose.prod.yml with proper env separation, and a short deployment README (required env vars, how to run Prisma migrations on deploy, how Turborepo's remote caching can speed up CI).
 
-Don't add new features here — only harden what already exists from Stages 0-7.
+Don't add new features here — only harden what already exists from Stages 1-7.

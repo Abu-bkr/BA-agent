@@ -12,6 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@ai-business-analyst/agents": "workspace:*",
     "@ai-business-analyst/db": "workspace:*",
     "@ai-business-analyst/shared-types": "workspace:*",
     "@fastify/cors": "^11.0.1",

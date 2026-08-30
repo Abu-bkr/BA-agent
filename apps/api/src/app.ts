@@ -3,6 +3,7 @@ import Fastify, {
   type FastifyRequest,
 } from "fastify";
 import cors from "@fastify/cors";
+import { z } from "zod";
 import prisma from "@ai-business-analyst/db";
 import {
   documentArtifactCreateSchema,
@@ -11,6 +12,7 @@ import {
   requirementCreateSchema,
   riskCreateSchema,
 } from "@ai-business-analyst/shared-types";
+import { runTurn } from "@ai-business-analyst/agents";
 import { loadConfig } from "./config.js";
 
 const projectParamsSchema = {
@@ -166,6 +168,30 @@ export async function buildApp(options: { logger?: boolean } = {}) {
         data: { ...body, projectId: request.params.projectId },
       });
       return reply.code(201).send({ data: document });
+    },
+  );
+
+  const turnBodySchema = z.object({
+    message: z.string().min(1),
+  });
+
+  app.post<{ Params: { projectId: string } }>(
+    "/api/projects/:projectId/turn",
+    { schema: { params: projectParamsSchema } },
+    async (request, reply) => {
+      const projectExists = await prisma.project.findUnique({
+        where: { id: request.params.projectId },
+      });
+
+      if (!projectExists) {
+        return reply.code(404).send({ error: "Project not found" });
+      }
+
+      const body = parseBody(turnBodySchema, request, reply);
+      if (!body) return;
+
+      const result = await runTurn(request.params.projectId, body.message);
+      return reply.send({ data: result });
     },
   );
 
