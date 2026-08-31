@@ -16,7 +16,7 @@ This document tracks the implementation progress across all 8 specification stag
 | 03 | Tools module | ✅ Complete | 100% | dbQueryTool, webSearchTool, fileReaderTool, documentWriterTool, ToolRegistry |
 | 04 | Multi-agent LangGraph workflow | ✅ Complete | 100% | All nodes built, graph wired, API route added; LangGraph pinned to 0.2.x (see Stage 04 report) |
 | 05 | Documentation & Review agents | ✅ Complete | 100% | BRD/SRS/User Stories prompts, Documentation + Review nodes with 1-auto-revision loop, document API endpoints, tests |
-| 06 | Model-agnostic LLM wrapper | ✅ Complete | 100% | OpenAI-only minimal, extensible interface for future providers |
+| 06 | Model-agnostic LLM wrapper | ✅ Complete | 100% | OpenAI, Anthropic, Google GenAI, Ollama behind one `getChatModel()`; per-agent overrides; retry/backoff + timeout |
 | 07 | Frontend (Next.js) | ⏳ Pending | 0% | Depends on working API from Stage 04 |
 | 08 | Production hardening | ⏳ Pending | 0% | Auth, rate limiting, validation, error handling, deployment |
 
@@ -116,7 +116,7 @@ This document tracks the implementation progress across all 8 specification stag
 
 ---
 
-### Stage 06: Model-Agnostic LLM Wrapper ✅ (Built early as Stage 04 prerequisite)
+### Stage 06: Model-Agnostic LLM Wrapper ✅
 
 **Location:** `packages/agents/src/llm/`
 
@@ -126,25 +126,35 @@ This document tracks the implementation progress across all 8 specification stag
   - Reads `MODEL_PROVIDER` (default `"openai"`) and `MODEL_NAME` (default `"gpt-4o-mini"`) from env
   - Per-agent override via `MODEL_OVERRIDE_{AGENT_NAME}_PROVIDER` and `MODEL_OVERRIDE_{AGENT_NAME}_MODEL` env vars
   - Configurable timeout and max retries
-- **get-chat-model.ts** (38 lines):
-  - `getChatModel(agentName?: AgentName, options?: { timeoutMs?: number }): ChatOpenAI`
-  - OpenAI-only concrete implementation (v0.1.0 compatible)
-  - Configured with `maxRetries` (retry/backoff) and `timeout` (request timeout)
-  - Throws clear error for unsupported providers, noting Stage 06 will add them
-- **index.ts** — Barrel export
+- **get-chat-model.ts**:
+  - `getChatModel(agentName?: AgentName, options?: { timeoutMs?, temperature? }): BaseChatModel`
+  - Dispatches on the resolved provider to one of four LangChain bindings:
+    - `openai` / `gpt` → `ChatOpenAI` (`@langchain/openai`, `OPENAI_API_KEY`)
+    - `anthropic` / `claude` → `ChatAnthropic` (`@langchain/anthropic`, `ANTHROPIC_API_KEY`)
+    - `google_genai` / `gemini` → `ChatGoogleGenerativeAI` (`@langchain/google-genai`, `GOOGLE_API_KEY`)
+    - `ollama` / `llama` / `qwen` → `ChatOllama` (`@langchain/community`, local; `OLLAMA_BASE_URL`)
+  - `canonicalizeProvider()` maps case/whitespace and model-family aliases to canonical keys
+  - Every provider gets `maxRetries` (uniform exponential-backoff retry on transient errors); OpenAI + Anthropic also get a per-request `timeout`
+  - Throws a clear error listing supported providers for anything unrecognized
+- **index.ts** — Barrel export (`getChatModel`, `GetChatModelOptions`, `ChatProvider`, `resolveConfig`, `LlmConfig`)
 
 **Design:**
 - All agent nodes import `getChatModel` from here; never instantiate provider SDKs directly
-- Public interface matches Stage 06 spec, allowing other providers to be plugged in later without touching node code
-- Supports per-agent model overrides (e.g., Interview Agent uses cheaper gpt-4o-mini, Documentation Agent uses stronger model)
+- Return type is `BaseChatModel`, so nodes are provider-agnostic (`invoke`, `bindTools`, `withStructuredOutput`)
+- `graph/utils/invoke-with-tools.ts` accepts `BaseChatModel` (widened from `ChatOpenAI`)
+- Supports per-agent model overrides (e.g., Interview Agent uses cheaper gpt-4o-mini, Documentation Agent uses a stronger model)
 
 **Files:**
 - `packages/agents/src/llm/config.ts` — Configuration resolution (51 lines)
-- `packages/agents/src/llm/get-chat-model.ts` — Chat model factory (38 lines)
+- `packages/agents/src/llm/get-chat-model.ts` — Multi-provider chat model factory
 - `packages/agents/src/llm/index.ts` — Barrel export
+- `packages/agents/test/get-chat-model.test.ts` — Provider selection, aliases, per-agent override, retry/timeout wiring, unknown-provider error
 
 **Dependencies:**
-- `@langchain/openai` ^0.1.13 — ChatOpenAI binding
+- `@langchain/openai` ^0.3.0 — `ChatOpenAI`
+- `@langchain/anthropic` ^0.3.0 — `ChatAnthropic`
+- `@langchain/google-genai` ^0.1.0 — `ChatGoogleGenerativeAI`
+- `@langchain/community` ^0.3.0 — `ChatOllama` (`@langchain/community/chat_models/ollama`)
 
 ---
 
@@ -318,7 +328,10 @@ Additionally, all agent nodes previously constructed a `MemoryManager` at module
 | `@langchain/core` | ^0.3.0 | agents | Core LangChain abstractions (resolves 0.3.80; required for `isToolMessage`) |
 | `@langchain/langgraph` | ^0.2.0 | agents | StateGraph, workflow orchestration (resolves 0.2.74) |
 | `@langchain/langgraph-checkpoint-postgres` | ^0.1.0 | agents | Postgres checkpointer (resolves 0.1.3) |
-| `@langchain/openai` | ^0.3.0 | agents | ChatOpenAI binding |
+| `@langchain/openai` | ^0.3.0 | agents | `ChatOpenAI` binding |
+| `@langchain/anthropic` | ^0.3.0 | agents | `ChatAnthropic` binding (Stage 06) |
+| `@langchain/google-genai` | ^0.1.0 | agents | `ChatGoogleGenerativeAI` binding (Stage 06) |
+| `@langchain/community` | ^0.3.0 | agents | `ChatOllama` binding for local llama/qwen (Stage 06) |
 | `chromadb` | ^3.1.6 | agents | Vector database for semantic search |
 | `ioredis` | ^5.6.1 | agents | Redis client for short-term memory |
 | `openai` | ^5.12.2 | agents | Embeddings API |
@@ -461,14 +474,20 @@ CHROMA_URL=http://localhost:8000
 OPENAI_API_KEY=sk-...
 
 # LLM Configuration (Stage 06)
-MODEL_PROVIDER=openai              # default: "openai"
+MODEL_PROVIDER=openai              # openai|anthropic|google_genai|ollama (aliases: gpt/claude/gemini/llama/qwen)
 MODEL_NAME=gpt-4o-mini             # default: "gpt-4o-mini"
-MODEL_TIMEOUT_MS=30000             # default: 30000
-MODEL_MAX_RETRIES=3                # default: 3
+MODEL_TIMEOUT_MS=30000             # default: 30000 (OpenAI + Anthropic)
+MODEL_MAX_RETRIES=3                # default: 3 (all providers)
+
+# Provider API keys (only the selected provider's key is required)
+ANTHROPIC_API_KEY=sk-ant-...       # for MODEL_PROVIDER=anthropic
+GOOGLE_API_KEY=...                 # for MODEL_PROVIDER=google_genai
+OLLAMA_BASE_URL=http://localhost:11434  # for MODEL_PROVIDER=ollama (local llama/qwen)
 
 # Per-agent overrides (optional)
 MODEL_OVERRIDE_INTERVIEW_AGENT_MODEL=gpt-4o-mini
-MODEL_OVERRIDE_DOCUMENTATION_AGENT_MODEL=gpt-4-turbo
+MODEL_OVERRIDE_DOCUMENTATION_AGENT_PROVIDER=anthropic
+MODEL_OVERRIDE_DOCUMENTATION_AGENT_MODEL=claude-3-5-sonnet-20240620
 ```
 
 ### Local Development Stack

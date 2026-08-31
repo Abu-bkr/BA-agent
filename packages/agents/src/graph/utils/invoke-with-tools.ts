@@ -1,15 +1,17 @@
-import { ChatOpenAI } from "@langchain/openai";
+import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import type { StructuredToolInterface } from "@langchain/core/tools";
 import { ToolMessage } from "@langchain/core/messages";
 import type { BaseMessage } from "@langchain/core/messages";
 
 export async function invokeWithTools(
-  model: ChatOpenAI,
+  model: BaseChatModel,
   tools: readonly StructuredToolInterface[],
   input: { messages: BaseMessage[] } | BaseMessage[],
 ): Promise<string> {
   const messages = Array.isArray(input) ? input : input.messages;
-  const boundModel = model.bindTools(tools as any);
+  // `bindTools` is optional on the BaseChatModel interface; every concrete
+  // provider we construct implements it. Cast to reach it uniformly.
+  const boundModel = (model as any).bindTools(tools as any);
   const modelResult = await boundModel.invoke(messages);
 
   if (!modelResult.tool_calls || modelResult.tool_calls.length === 0) {

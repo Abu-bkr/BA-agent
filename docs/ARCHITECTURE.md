@@ -182,7 +182,11 @@ class MemoryManager {
 
 **Purpose:** Model-agnostic interface so agents never hardcode provider SDKs.
 
-**getChatModel(agentName?, options?) → ChatOpenAI**
+**getChatModel(agentName?, options?) → BaseChatModel**
+
+Returns a LangChain.js-compatible chat model (`ChatOpenAI`, `ChatAnthropic`,
+`ChatGoogleGenerativeAI`, or `ChatOllama`) selected purely from configuration.
+Every agent node calls this one interface; none imports a provider SDK.
 
 **Configuration Resolution:**
 
@@ -200,18 +204,34 @@ Per-Agent Override (example):
 Result: Config { provider, model, timeout, maxRetries }
 ```
 
-**OpenAI Implementation (Current):**
+**Supported providers** (`MODEL_PROVIDER`, aliases accepted):
+
+| Provider value                | Class                     | Package                              | API key env         |
+|-------------------------------|---------------------------|--------------------------------------|---------------------|
+| `openai` / `gpt`              | `ChatOpenAI`              | `@langchain/openai`                  | `OPENAI_API_KEY`    |
+| `anthropic` / `claude`        | `ChatAnthropic`           | `@langchain/anthropic`               | `ANTHROPIC_API_KEY` |
+| `google_genai` / `gemini`     | `ChatGoogleGenerativeAI`  | `@langchain/google-genai`            | `GOOGLE_API_KEY`    |
+| `ollama` / `llama` / `qwen`   | `ChatOllama`              | `@langchain/community` (Ollama)      | none (local)        |
+
+Ollama base URL is configurable via `OLLAMA_BASE_URL` (default `http://localhost:11434`).
+
+**Resilience (all providers):**
+- `maxRetries` — exponential-backoff retry on transient API errors, applied
+  uniformly via LangChain's `AsyncCaller`.
+- `timeout` — per-request timeout for OpenAI (`timeout`) and Anthropic
+  (`clientOptions.timeout`). The Google GenAI and Ollama bindings do not expose
+  a request timeout; those calls are bounded by `maxRetries`.
+
 ```typescript
-new ChatOpenAI({
-  modelName: config.model,
-  apiKey: process.env.OPENAI_API_KEY,
-  temperature: 0.7,
-  maxRetries: 3,
-  timeout: 30000,
-})
+// Resolved per agent, then dispatched on config.provider:
+new ChatOpenAI({ model, apiKey, temperature: 0.7, maxRetries, timeout });
+new ChatAnthropic({ model, apiKey, temperature: 0.7, maxRetries, clientOptions: { timeout } });
+new ChatGoogleGenerativeAI({ model, apiKey, temperature: 0.7, maxRetries });
+new ChatOllama({ model, baseUrl, temperature: 0.7, maxRetries });
 ```
 
-**Future Extensibility:** Other providers (Anthropic, Google, Ollama) can be added as branches without touching node code—agents only call `getChatModel()`.
+**Extensibility:** Adding a provider is one branch in `getChatModel()` plus its
+`@langchain/*` dependency — agent nodes never change.
 
 ---
 
@@ -531,14 +551,16 @@ Agent uses these for context when writing gaps: "The client emphasized 1000 conc
 
 ### Adding a New LLM Provider
 
+OpenAI, Anthropic, Google Generative AI, and Ollama are already wired. To add
+another (e.g. Mistral):
+
 1. Update `packages/agents/src/llm/get-chat-model.ts`
-2. Add provider branch in `getChatModel()`:
+2. Add the provider's canonical key + aliases in `canonicalizeProvider()`, then a `case` in `getChatModel()`:
    ```typescript
-   if (config.provider === "anthropic") {
-     return new ChatAnthropic({ modelName: config.model, ... });
-   }
+   case "mistral":
+     return new ChatMistralAI({ model: config.model, apiKey: process.env.MISTRAL_API_KEY, temperature, maxRetries });
    ```
-3. Add dependency: `@langchain/anthropic`
+3. Add dependency: `@langchain/mistralai`
 4. Update env var documentation
 5. No agent code changes needed!
 

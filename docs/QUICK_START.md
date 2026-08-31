@@ -44,13 +44,19 @@ CHROMA_URL=http://localhost:8000
 OPENAI_API_KEY=sk-...
 
 # LLM Configuration (optional)
-MODEL_PROVIDER=openai
+MODEL_PROVIDER=openai              # openai|anthropic|google_genai|ollama (aliases: gpt/claude/gemini/llama/qwen)
 MODEL_NAME=gpt-4o-mini
 MODEL_TIMEOUT_MS=30000
 MODEL_MAX_RETRIES=3
 
+# Provider API keys (only the selected provider's key is required)
+ANTHROPIC_API_KEY=sk-ant-...       # MODEL_PROVIDER=anthropic
+GOOGLE_API_KEY=...                 # MODEL_PROVIDER=google_genai
+OLLAMA_BASE_URL=http://localhost:11434  # MODEL_PROVIDER=ollama (local)
+
 # Per-agent overrides (optional)
-MODEL_OVERRIDE_DOCUMENTATION_AGENT_MODEL=gpt-4-turbo
+MODEL_OVERRIDE_DOCUMENTATION_AGENT_PROVIDER=anthropic
+MODEL_OVERRIDE_DOCUMENTATION_AGENT_MODEL=claude-3-5-sonnet-20240620
 ```
 
 ### Database Setup
