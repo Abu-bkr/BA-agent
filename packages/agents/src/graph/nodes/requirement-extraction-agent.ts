@@ -4,7 +4,7 @@ import type { AgentStateType } from "../state.js";
 import { getChatModel } from "../../llm/get-chat-model.js";
 import { ToolRegistry } from "../../tools/tool-registry.js";
 import { invokeWithTools } from "../utils/invoke-with-tools.js";
-import type { MemoryManager } from "../../memory/memory-manager.js";
+import { getDefaultMemoryManager, type MemoryManager } from "../../memory/memory-manager.js";
 import type { DbClient } from "../../tools/db-query-tool.js";
 import prisma from "@ai-business-analyst/db";
 
@@ -13,9 +13,6 @@ export interface RequirementExtractionAgentDeps {
   db?: DbClient;
 }
 
-const defaultMemoryManager = await import("../../memory/memory-manager.js").then(
-  (m) => new m.MemoryManager(),
-);
 const toolRegistry = new ToolRegistry();
 
 const requirementSchema = z.object({
@@ -26,7 +23,7 @@ const requirementSchema = z.object({
 export function createRequirementExtractionAgentNode(
   deps: RequirementExtractionAgentDeps = {},
 ) {
-  const memoryManager = deps.memoryManager ?? defaultMemoryManager;
+  const memoryManager = deps.memoryManager ?? getDefaultMemoryManager();
   const db = deps.db ?? prisma;
 
   return async (state: AgentStateType): Promise<Partial<AgentStateType>> => {
@@ -35,8 +32,8 @@ export function createRequirementExtractionAgentNode(
     const model = getChatModel("Requirement Extraction");
     const tools = toolRegistry.getTools("Requirement Extraction");
 
-    const boundModel = model
-      .bindTools(tools)
+    const boundModel = (model as any)
+      .bindTools([...tools])
       .withStructuredOutput(z.object({
         requirements: z.array(requirementSchema),
       }));

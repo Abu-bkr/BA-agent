@@ -148,7 +148,45 @@ export async function buildApp(options: { logger?: boolean } = {}) {
     async (request) => ({
       data: await prisma.documentArtifact.findMany({
         where: { projectId: request.params.projectId },
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ type: "asc" }, { version: "desc" }],
+      }),
+    }),
+  );
+
+  const documentParamsSchema = {
+    type: "object",
+    required: ["projectId", "docId"],
+    properties: {
+      projectId: { type: "string", minLength: 1 },
+      docId: { type: "string", minLength: 1 },
+    },
+  } as const;
+
+  app.get<{ Params: { projectId: string; docId: string } }>(
+    "/api/projects/:projectId/documents/:docId",
+    { schema: { params: documentParamsSchema } },
+    async (request, reply) => {
+      const document = await prisma.documentArtifact.findFirst({
+        where: {
+          id: request.params.docId,
+          projectId: request.params.projectId,
+        },
+      });
+
+      if (!document) {
+        return reply.code(404).send({ error: "Document not found" });
+      }
+      return { data: document };
+    },
+  );
+
+  app.get<{ Params: { projectId: string } }>(
+    "/api/projects/:projectId/review-notes",
+    { schema: { params: projectParamsSchema } },
+    async (request) => ({
+      data: await prisma.reviewNote.findMany({
+        where: { projectId: request.params.projectId },
+        orderBy: { id: "asc" },
       }),
     }),
   );

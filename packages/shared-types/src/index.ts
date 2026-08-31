@@ -107,7 +107,11 @@ export const documentArtifactSchema = z.object({
 
 export const documentArtifactCreateSchema = documentArtifactSchema
   .omit({ id: true, createdAt: true })
-  .extend({ projectId: idSchema });
+  .extend({
+    projectId: idSchema,
+    // Mirrors the Prisma @default(1) so clients may omit it on create.
+    version: z.number().int().positive().default(1),
+  });
 
 export const reviewNoteSchema = z.object({
   id: idSchema,

@@ -101,6 +101,20 @@ const DEFAULT_SHORT_TERM_LIMIT = 20;
 const DEFAULT_REDIS_PREFIX = "memory:project";
 const DEFAULT_COLLECTION = "conversation_turns";
 
+let defaultMemoryManagerInstance: MemoryManager | undefined;
+
+/**
+ * Lazily-constructed, process-wide MemoryManager singleton used as the
+ * default by agent nodes. Constructing the manager connects to Redis and
+ * initializes the embedding provider, so we defer it until a node actually
+ * runs rather than on module import (which would throw without
+ * OPENAI_API_KEY and crash tests / the API at load time).
+ */
+export function getDefaultMemoryManager(): MemoryManager {
+  defaultMemoryManagerInstance ??= new MemoryManager();
+  return defaultMemoryManagerInstance;
+}
+
 export class MemoryManager {
   private readonly redis: RedisLike;
   private readonly db: DatabaseLike;

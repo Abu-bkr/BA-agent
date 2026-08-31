@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { AgentStateType } from "../state.js";
 import { getChatModel } from "../../llm/get-chat-model.js";
 import { ToolRegistry } from "../../tools/tool-registry.js";
-import type { MemoryManager } from "../../memory/memory-manager.js";
+import { getDefaultMemoryManager, type MemoryManager } from "../../memory/memory-manager.js";
 import type { DbClient } from "../../tools/db-query-tool.js";
 import prisma from "@ai-business-analyst/db";
 
@@ -12,9 +12,6 @@ export interface GapAnalysisAgentDeps {
   db?: DbClient;
 }
 
-const defaultMemoryManager = await import("../../memory/memory-manager.js").then(
-  (m) => new m.MemoryManager(),
-);
 const toolRegistry = new ToolRegistry();
 
 const gapSchema = z.object({
@@ -26,7 +23,7 @@ const gapSchema = z.object({
 });
 
 export function createGapAnalysisAgentNode(deps: GapAnalysisAgentDeps = {}) {
-  const memoryManager = deps.memoryManager ?? defaultMemoryManager;
+  const memoryManager = deps.memoryManager ?? getDefaultMemoryManager();
   const db = deps.db ?? prisma;
 
   return async (state: AgentStateType): Promise<Partial<AgentStateType>> => {
@@ -35,7 +32,7 @@ export function createGapAnalysisAgentNode(deps: GapAnalysisAgentDeps = {}) {
     const model = getChatModel("Gap Analysis Agent");
     const tools = toolRegistry.getTools("Gap Analysis Agent");
 
-    const boundModel = model.bindTools(tools).withStructuredOutput(gapSchema);
+    const boundModel = (model as any).bindTools([...tools]).withStructuredOutput(gapSchema);
 
     const result = await boundModel.invoke({
       messages: [

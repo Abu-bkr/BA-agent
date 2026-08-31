@@ -1,5 +1,5 @@
 import type { AgentStateType } from "../state.js";
-import type { MemoryManager } from "../../memory/memory-manager.js";
+import { getDefaultMemoryManager, type MemoryManager } from "../../memory/memory-manager.js";
 import type { DbClient } from "../../tools/db-query-tool.js";
 import prisma from "@ai-business-analyst/db";
 
@@ -8,12 +8,8 @@ export interface PlannerDeps {
   db?: DbClient;
 }
 
-const defaultMemoryManager = await import("../../memory/memory-manager.js").then(
-  (m) => new m.MemoryManager(),
-);
-
 export function createPlannerNode(deps: PlannerDeps = {}) {
-  const memoryManager = deps.memoryManager ?? defaultMemoryManager;
+  const memoryManager = deps.memoryManager ?? getDefaultMemoryManager();
   const db = deps.db ?? prisma;
 
   return async (state: AgentStateType): Promise<Partial<AgentStateType>> => {

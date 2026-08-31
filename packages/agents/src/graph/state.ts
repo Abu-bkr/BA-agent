@@ -1,5 +1,5 @@
 import { Annotation } from "@langchain/langgraph";
-import type { ProjectStatus, Requirement, Gap, Risk, DocumentArtifact } from "@ai-business-analyst/shared-types";
+import type { ProjectStatus, Requirement, Gap, Risk, DocumentArtifact, ReviewNote } from "@ai-business-analyst/shared-types";
 import type { MemoryTurn } from "../memory/memory-manager.js";
 import type { AgentName } from "../tools/tool-registry.js";
 
@@ -39,6 +39,14 @@ export const AgentState = Annotation.Root({
   finalDocuments: Annotation<DocumentArtifact[]>({
     reducer: (existing, update) => update,
     default: () => [],
+  }),
+  reviewNotes: Annotation<ReviewNote[]>({
+    reducer: (existing, update) => update,
+    default: () => [],
+  }),
+  revisionCount: Annotation<number>({
+    reducer: (existing, update) => update,
+    default: () => 0,
   }),
 });
 

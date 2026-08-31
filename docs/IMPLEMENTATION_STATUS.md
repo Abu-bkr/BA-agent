@@ -1,7 +1,7 @@
 # AI Business Analyst - Implementation Status
 
 **Last Updated:** 2026-08-31  
-**Current Focus:** Spec 04 - Multi-agent LangGraph workflow
+**Current Focus:** Spec 05 - Documentation & Review agents
 
 ## Overview
 
@@ -14,8 +14,8 @@ This document tracks the implementation progress across all 8 specification stag
 | 01 | Database schema & CRUD | ✅ Complete | 100% | Prisma schema, migrations, PrismaClient singleton, Zod schemas, CRUD routes |
 | 02 | Memory module | ✅ Complete | 100% | Redis short-term, Postgres long-term, ChromaDB semantic search, MemoryManager class |
 | 03 | Tools module | ✅ Complete | 100% | dbQueryTool, webSearchTool, fileReaderTool, documentWriterTool, ToolRegistry |
-| 04 | Multi-agent LangGraph workflow | 🔄 In Progress | 95% | All nodes built, graph wired, API route added; pending version compatibility resolution |
-| 05 | Documentation & Review agents | ⏳ Pending | 0% | Depends on Stage 04 completion |
+| 04 | Multi-agent LangGraph workflow | ✅ Complete | 100% | All nodes built, graph wired, API route added; LangGraph pinned to 0.2.x (see Stage 04 report) |
+| 05 | Documentation & Review agents | ✅ Complete | 100% | BRD/SRS/User Stories prompts, Documentation + Review nodes with 1-auto-revision loop, document API endpoints, tests |
 | 06 | Model-agnostic LLM wrapper | ✅ Complete | 100% | OpenAI-only minimal, extensible interface for future providers |
 | 07 | Frontend (Next.js) | ⏳ Pending | 0% | Depends on working API from Stage 04 |
 | 08 | Production hardening | ⏳ Pending | 0% | Auth, rate limiting, validation, error handling, deployment |
@@ -148,7 +148,7 @@ This document tracks the implementation progress across all 8 specification stag
 
 ---
 
-### Stage 04: Multi-agent LangGraph Workflow 🔄 (95% Complete)
+### Stage 04: Multi-agent LangGraph Workflow ✅ (100% Complete)
 
 **Location:** `packages/agents/src/graph/`
 
@@ -167,8 +167,8 @@ This document tracks the implementation progress across all 8 specification stag
   - **requirement-extraction-agent.ts** (70 lines) — dbQueryTool; structured output extraction via `withStructuredOutput()`, writes Requirement rows, advances to gap_analysis
   - **gap-analysis-agent.ts** (66 lines) — dbQueryTool; identifies gaps, writes Gap rows, advances to risk_analysis
   - **risk-analysis-agent.ts** (70 lines) — dbQueryTool + webSearchTool; identifies risks with severity/category, writes Risk rows, advances to documentation
-  - **documentation-agent.ts** (68 lines) — dbQueryTool + documentWriterTool; generates summary markdown, creates DocumentArtifact, advances to review
-  - **review-agent.ts** (64 lines) — dbQueryTool + documentWriterTool; consistency check, sets status to completed
+  - **documentation-agent.ts** — dbQueryTool + documentWriterTool; generates BRD/SRS/User Stories, creates DocumentArtifact, advances to review *(fully implemented in Stage 05)*
+  - **review-agent.ts** — consistency check against source requirements/risks/gaps, writes ReviewNote rows, auto-revision loop, sets status to completed *(fully implemented in Stage 05)*
 
 - **Planner node** (planner.ts, 68 lines):
   - Routes based on `currentStage`:
@@ -226,49 +226,86 @@ This document tracks the implementation progress across all 8 specification stag
 - `packages/agents/src/graph/run-turn.ts` — Turn runner (57 lines)
 - `packages/agents/src/graph/index.ts` — Barrel export
 
-**Current Blocker — LangGraph Version Compatibility:**
+**Version compatibility — resolved:**
 
-The implementation is architecturally complete but encounters peer dependency conflicts:
+The original blocker was peer-dependency conflicts between `@langchain/langgraph@0.1.x` and `@langchain/langgraph-checkpoint-postgres@1.0.x`. Instead of the documented 4–6 hour upgrade to the LangGraph v1.x stack, the stack was pinned to a compatible set:
 
-```
-@langchain/langgraph-checkpoint-postgres@1.0.5
-  ├── requires @langchain/core@^1.1.44 (installed: 0.2.36)
-  └── requires @langchain/langgraph-checkpoint@^1.1.4 (installed: 0.1.3)
-```
+- `@langchain/langgraph` → `^0.2.0` (resolves 0.2.74) — provides `interrupt()`, `MemorySaver`, and the typed `StateGraph`/`addEdge` API
+- `@langchain/langgraph-checkpoint-postgres` → `^0.1.0` (resolves 0.1.3)
+- `@langchain/core` → `^0.3.0` (resolves 0.3.80) — **required**: langgraph 0.2.74's `pregel/messages` imports `isToolMessage` at runtime, which only exists in core ≥0.3 (core 0.2.36 loads but crashes with "does not provide an export named 'isToolMessage'")
+- `@langchain/openai` → `^0.3.0` — paired with core 0.3.x (0.1.3 pins core `<0.3.0` and would create a dual-core split)
 
-**Type errors:**
-- `interrupt()` no longer exported from `@langchain/langgraph` in v0.1.x
-- `withStructuredOutput()` signature differs between versions
-- `invoke()` message format incompatibilities
-- StateGraph edge API differs (conditional edges keying)
+Surgical code fixes applied (all typecheck clean):
+- `graph.addEdge(START as any, "planner" as any)` — v0.2 type mismatch on START/END constants
+- `(model as any).bindTools([...tools]).withStructuredOutput(schema)` — `bindTools` returns a `Runnable` lacking `withStructuredOutput`
+- `model.invoke([...messages])` array form — object `{ messages }` is not a valid `BaseLanguageModelInput`
+- `file-reader-tool.ts` — replaced a `.refine()` ZodEffects schema (typing broke `DynamicStructuredTool.func`) with a plain `z.object` + explicit runtime check
+- `documentation-agent.ts` — `StructuredToolInterface.invoke` is a union of call signatures in core 0.3.x; narrowed via a whole-object cast to the `DocumentWriterInput` type (cast the object, not the method, so `this` stays bound)
 
-**Resolution options:**
-1. **Upgrade to latest LangGraph v1.x** — requires:
-   - Update to `@langchain/core@^1.2.0+`, `@langchain/langgraph@^1.0.0+`, `@langchain/langgraph-checkpoint-postgres@^1.0.0+`
-   - Adapt node code to new interrupt/Command API
-   - Update message handling for v1.x BaseLanguageModel interface
-   - Estimated effort: 4-6 hours for full compatibility pass
+Additionally, all agent nodes previously constructed a `MemoryManager` at module scope (`const defaultMemoryManager = await import(...).then(m => new m.MemoryManager())`), which throws without `OPENAI_API_KEY` at *import* time. This is replaced with a lazy, cached `getDefaultMemoryManager()` in `memory/memory-manager.ts` so importing the graph (and the API's `runTurn`) no longer needs a key until a node actually runs.
 
-2. **Pin compatible v0.x stack** — requires:
-   - Research compatible version combinations (e.g., LangGraph 0.0.x with LangChain 0.2.x)
-   - May limit feature access (fewer built-ins, less documentation)
-   - Faster short-term fix but locks to older ecosystem
-
-3. **Use LangGraph's high-level SDK** — requires:
-   - Replace raw StateGraph with compiled Pregel
-   - Simplified state management but less control
+**Result:** `pnpm --filter @ai-business-analyst/agents typecheck` and `build` pass.
 
 **Dependency snapshot** (current package.json):
 ```json
 {
-  "@langchain/core": "^0.2.0",
-  "@langchain/langgraph": "^0.1.0",
-  "@langchain/langgraph-checkpoint-postgres": "^1.0.0",
-  "@langchain/openai": "^0.1.0"
+  "@langchain/core": "^0.3.0",
+  "@langchain/langgraph": "^0.2.0",
+  "@langchain/langgraph-checkpoint-postgres": "^0.1.0",
+  "@langchain/openai": "^0.3.0"
 }
 ```
 
-**Recommendation:** Proceed with option 1 (upgrade to latest stable) given the spec's long-term scope. The latest LangGraph v1.x is well-documented and actively maintained. A focused compatibility pass should resolve all issues.
+---
+
+### Stage 05: Documentation & Review Agents ✅ (100% Complete)
+
+**Location:** `packages/agents/src/prompts/`, `packages/agents/src/graph/nodes/`, `apps/api/src/app.ts`
+
+**Completed:**
+- **Prompts module** (`packages/agents/src/prompts/documentation-prompts.ts`):
+  - `brdPromptTemplate`, `srsPromptTemplate`, `userStoriesPromptTemplate` — LangChain `PromptTemplate`s (no inline prompt strings in node code)
+  - `documentationPromptTemplates: Record<"BRD" | "SRS" | "user_stories", PromptTemplate>` and `DocumentationPromptInput`
+  - Shared `SOURCE_DATA_BLOCK` with variables `{projectContext, requirements, gaps, risks, reviewNotes, revisionGuidance}`
+  - BRD (12 sections), SRS (10 sections + mandatory Traceability Matrix), User Stories ("As a [role], I want [goal], so that [benefit]" + Acceptance Criteria)
+  - Barrel export via `packages/agents/src/prompts/index.ts` (re-exported from `packages/agents/src/index.ts`)
+
+- **Documentation Agent** (`documentation-agent.ts`):
+  - Generates all three artifacts (BRD, SRS, user_stories) from Requirements + resolved Gaps + Risks
+  - Uses `PromptTemplate.format()` to render prompts, invokes the model, persists each artifact through `documentWriterTool` (injectable)
+  - On a revision pass (`revisionCount > 0`) incorporates prior `reviewNotes` as `revisionGuidance` and updates existing artifacts (version bump via the writer tool)
+  - Falls back to the database for requirements/gaps/risks if the pipeline did not carry them in state
+  - Sets project status to `review` and routes to Review Agent
+
+- **Review Agent** (`review-agent.ts`):
+  - Deterministic structural check (all of BRD/SRS/user_stories present) that runs regardless of the LLM
+  - LLM cross-check via `withStructuredOutput` against the review checklist (every requirement in the SRS? high-severity risks called out? resolved gaps reflected?)
+  - Writes every issue as a `ReviewNote` row (`resolved: false`)
+  - **Auto-revision loop:** if issues found and `revisionCount < MAX_AUTO_REVISIONS (=1)`, routes back to Documentation Agent with `revisionCount + 1`; otherwise (clean or cap reached) sets status to `completed` and surfaces any unresolved issues as `ReviewNote` rows for a human
+  - No planner/graph changes required — `review`→`documentation`→`review` routing already exists via the planner
+
+- **State additions** (`graph/state.ts`): `reviewNotes: Annotation<ReviewNote[]>`, `revisionCount: Annotation<number>`; `run-turn.ts` initializes both and returns `reviewNotes` on completion
+
+- **API** (`apps/api/src/app.ts`):
+  - `GET /api/projects/:projectId/documents` — list all artifacts + versions (ordered by type asc, version desc)
+  - `GET /api/projects/:projectId/documents/:docId` — fetch one artifact with content (404 when missing or not in this project)
+  - `GET /api/projects/:projectId/review-notes` — list ReviewNote rows
+  - `documentArtifactCreateSchema` now defaults `version` to 1, matching the Prisma `@default(1)` (previously clients were required to send it)
+
+- **Tests**:
+  - `packages/agents/test/documentation-review.test.ts` — fakes-first node tests covering: 3 artifacts generated, review routing back with `revisionCount: 1`, full clean-loop with version bump to 2, revision cap surfacing unresolved notes, prompt template rendering
+  - `apps/api/test/documents.test.ts` — list/fetch/404/cross-project-scope/versions/review-notes for the document endpoints
+
+**Files:**
+- `packages/agents/src/prompts/documentation-prompts.ts` — Prompt templates (new)
+- `packages/agents/src/prompts/index.ts` — Barrel (new)
+- `packages/agents/src/graph/nodes/documentation-agent.ts` — Documentation node (rewritten)
+- `packages/agents/src/graph/nodes/review-agent.ts` — Review node with revision loop (rewritten)
+- `packages/agents/src/graph/state.ts` — reviewNotes + revisionCount annotations
+- `packages/agents/src/graph/run-turn.ts` — init + return review notes
+- `packages/agents/src/index.ts` — export prompts
+- `apps/api/src/app.ts` — document GET endpoints + review-notes
+- `packages/shared-types/src/index.ts` — version default in create schema
 
 ---
 
@@ -278,11 +315,10 @@ The implementation is architecturally complete but encounters peer dependency co
 
 | Package | Version | Used In | Purpose |
 |---------|---------|---------|---------|
-| `@langchain/core` | ^0.2.0 | agents | Core LangChain abstractions (need update to ^1.2.0+) |
-| `@langchain/langgraph` | ^0.1.0 | agents | StateGraph, workflow orchestration (need update) |
-| `@langchain/langgraph-checkpoint` | ^0.1.2 | agents | Checkpoint persistence (need update) |
-| `@langchain/langgraph-checkpoint-postgres` | ^1.0.0 | agents | Postgres checkpointer (current) |
-| `@langchain/openai` | ^0.1.0 | agents | ChatOpenAI binding (compatible) |
+| `@langchain/core` | ^0.3.0 | agents | Core LangChain abstractions (resolves 0.3.80; required for `isToolMessage`) |
+| `@langchain/langgraph` | ^0.2.0 | agents | StateGraph, workflow orchestration (resolves 0.2.74) |
+| `@langchain/langgraph-checkpoint-postgres` | ^0.1.0 | agents | Postgres checkpointer (resolves 0.1.3) |
+| `@langchain/openai` | ^0.3.0 | agents | ChatOpenAI binding |
 | `chromadb` | ^3.1.6 | agents | Vector database for semantic search |
 | `ioredis` | ^5.6.1 | agents | Redis client for short-term memory |
 | `openai` | ^5.12.2 | agents | Embeddings API |
@@ -356,36 +392,24 @@ The implementation is architecturally complete but encounters peer dependency co
 
 ## Known Issues & Next Steps
 
-### Critical Path Blockers
+### Post-Stage 05 Work
 
-1. **LangGraph version compatibility (Stage 04)**
-   - **Issue:** Peer dependency conflicts between checkpoint-postgres v1.0 and older langgraph v0.1
-   - **Impact:** Type errors, compilation fails
-   - **Resolution:** Upgrade to latest LangGraph v1.x stack + adapt code (4-6 hour effort)
-   - **Blocker for:** Stage 05 Documentation agent, Stage 07 frontend, all downstream stages
-
-### Post-Stage 04 Work
-
-2. **Stage 05 — Documentation & Review Agents**
-   - Requires Stage 04 compilation fix
-   - Add BRD/SRS/User Stories prompt templates in `packages/agents/src/prompts/`
-   - Implement auto-revision loop in Review agent (currently minimal)
-   - Estimated effort: 2-3 hours (scaffolding done, prompts + logic remaining)
-
-3. **Stage 07 — Frontend (Next.js)**
+1. **Stage 07 — Frontend (Next.js)**
    - Depends on working Stage 04 API `/turn` endpoint
    - Pages: intake, interview chat, dashboard, project history
    - Use TanStack Query + Zod types from shared-types
    - Estimated effort: 8-10 hours (design system + full UI)
 
-4. **Stage 08 — Production Hardening**
+2. **Stage 08 — Production Hardening**
    - JWT auth, rate limiting, input validation, error handling
    - Docker Compose, deployment docs
    - Depends on all prior stages working
    - Estimated effort: 4-5 hours
 
-### Minor Issues
+### Known Limitations
 
+- `packages/agents/test/graph.test.ts` is a pre-existing scaffold that stubs `getChatModel` globally, which does not affect module imports; `GraphDeps` only carries a checkpointer, so node-level deps cannot be injected through the graph. It is documented here and not part of the Stage 05 test suite. Stage 05 tests exercise the documentation/review nodes directly with injected fakes.
+- The API test suites (`apps/api/test/*.test.ts`, including the 5 Stage 05 document routes) require a running Postgres at `localhost:5433` and skip otherwise. Start it with `docker compose up -d postgres-test` and apply the schema with `DATABASE_URL=postgresql://postgres:postgres@localhost:5433/ai_business_analyst_test pnpm --filter @ai-business-analyst/db exec prisma migrate deploy` before running `pnpm --filter @ai-business-analyst/api test`.
 - Web search tool is a mock stub; real provider integration needed for domain/research agents
 - File uploader for Research Agent file-reader tool not yet implemented in API
 - No async file upload endpoint for PDFs/CSVs
@@ -401,8 +425,9 @@ The implementation is architecturally complete but encounters peer dependency co
 | packages/agents (memory) | 3 files | 400+ | ✅ Complete |
 | packages/agents (tools) | 5 files | 350+ | ✅ Complete |
 | packages/agents (llm) | 3 files | 130+ | ✅ Complete |
-| packages/agents (graph) | 14 files | 1000+ | 🔄 95% (version issue) |
-| apps/api | app.ts (modified) | 200+ | ✅ Route added |
+| packages/agents (graph) | 14 files | 1000+ | ✅ Complete |
+| packages/agents (prompts) | 2 files | 120+ | ✅ Complete (Stage 05) |
+| apps/api | app.ts (modified) | 200+ | ✅ Documents + review-notes routes added |
 
 **Total:** ~2500+ lines of production code written
 
@@ -412,7 +437,9 @@ The implementation is architecturally complete but encounters peer dependency co
 
 - ✅ Memory module: integration test with fakes (memory-manager.test.ts)
 - ✅ CRUD routes: Vitest tests (apps/api/test/projects.test.ts)
-- 🔄 Graph workflow: test scaffold written, requires compilation fix to run
+- ✅ Stage 05 documentation & review: node tests with injected fakes (documentation-review.test.ts)
+- ✅ Stage 05 documents API: route tests (apps/api/test/documents.test.ts)
+- ⚠️ Graph workflow integration (graph.test.ts): pre-existing scaffold, does not inject node deps (see Known Limitations)
 
 ---
 
@@ -464,12 +491,12 @@ Required services (docker-compose or local):
 
 ## Recommendations for Next Session
 
-1. **Fix LangGraph version stack** — pin compatible versions and adapt code (4-6 hours, blocks all progress)
-2. **Complete Stage 04 type checking** — resolve remaining import/API errors
-3. **Run integration test** — verify graph flow end-to-end
-4. **Stage 05 prompts** — begin BRD/SRS template work
-5. **Stage 07 skeleton** — set up Next.js app structure, basic pages
+1. **Stage 07 skeleton** — set up Next.js app structure, basic pages
+2. **Stage 08 hardening** — auth, rate limiting, validation, deployment
+3. **Wire graph.test.ts deps** — extend `GraphDeps` to inject node dependencies so the integration test can run with fakes
+4. **Real web search provider** — replace the mock stub for domain/research agents
+5. **File upload endpoint** — async upload for PDFs/CSVs for the Research Agent file-reader tool
 
 ---
 
-**Status:** 5 of 8 stages complete or substantially complete. Stage 04 architecture fully designed and implemented; awaiting version resolution for compilation. Forward momentum ready once dependencies are pinned.
+**Status:** 6 of 8 stages complete (01–06). Stage 04 fully typechecks with the LangGraph 0.2.x pin; Stage 05 documentation & review agents, prompts, API endpoints, and tests are complete. Stages 07 (frontend) and 08 (production hardening) remain.

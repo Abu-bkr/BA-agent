@@ -4,7 +4,7 @@ import type { AgentStateType } from "../state.js";
 import { getChatModel } from "../../llm/get-chat-model.js";
 import { ToolRegistry } from "../../tools/tool-registry.js";
 import { invokeWithTools } from "../utils/invoke-with-tools.js";
-import type { MemoryManager } from "../../memory/memory-manager.js";
+import { getDefaultMemoryManager, type MemoryManager } from "../../memory/memory-manager.js";
 import type { DbClient } from "../../tools/db-query-tool.js";
 import prisma from "@ai-business-analyst/db";
 
@@ -13,9 +13,6 @@ export interface RiskAnalysisAgentDeps {
   db?: DbClient;
 }
 
-const defaultMemoryManager = await import("../../memory/memory-manager.js").then(
-  (m) => new m.MemoryManager(),
-);
 const toolRegistry = new ToolRegistry();
 
 const riskSchema = z.object({
@@ -30,7 +27,7 @@ const riskSchema = z.object({
 });
 
 export function createRiskAnalysisAgentNode(deps: RiskAnalysisAgentDeps = {}) {
-  const memoryManager = deps.memoryManager ?? defaultMemoryManager;
+  const memoryManager = deps.memoryManager ?? getDefaultMemoryManager();
   const db = deps.db ?? prisma;
 
   return async (state: AgentStateType): Promise<Partial<AgentStateType>> => {
@@ -39,7 +36,7 @@ export function createRiskAnalysisAgentNode(deps: RiskAnalysisAgentDeps = {}) {
     const model = getChatModel("Risk Analysis Agent");
     const tools = toolRegistry.getTools("Risk Analysis Agent");
 
-    const boundModel = model.bindTools(tools).withStructuredOutput(riskSchema);
+    const boundModel = (model as any).bindTools([...tools]).withStructuredOutput(riskSchema);
 
     const result = await boundModel.invoke({
       messages: [

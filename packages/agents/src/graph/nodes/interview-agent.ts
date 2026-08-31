@@ -2,7 +2,7 @@ import { interrupt } from "@langchain/langgraph";
 import { HumanMessage, AIMessage } from "@langchain/core/messages";
 import type { AgentStateType } from "../state.js";
 import { getChatModel } from "../../llm/get-chat-model.js";
-import type { MemoryManager } from "../../memory/memory-manager.js";
+import { getDefaultMemoryManager, type MemoryManager } from "../../memory/memory-manager.js";
 import type { DbClient } from "../../tools/db-query-tool.js";
 import prisma from "@ai-business-analyst/db";
 
@@ -11,12 +11,8 @@ export interface InterviewAgentDeps {
   db?: DbClient;
 }
 
-const defaultMemoryManager = await import("../../memory/memory-manager.js").then(
-  (m) => new m.MemoryManager(),
-);
-
 export function createInterviewAgentNode(deps: InterviewAgentDeps = {}) {
-  const memoryManager = deps.memoryManager ?? defaultMemoryManager;
+  const memoryManager = deps.memoryManager ?? getDefaultMemoryManager();
   const db = deps.db ?? prisma;
 
   return async (state: AgentStateType): Promise<Partial<AgentStateType>> => {
@@ -24,11 +20,11 @@ export function createInterviewAgentNode(deps: InterviewAgentDeps = {}) {
 
     if (!clientMessage && conversationHistory.length === 0) {
       const model = getChatModel("Interview Agent");
-      const question = await model.invoke(
+      const question = await model.invoke([
         new HumanMessage(
           "You are a business analyst conducting an intake interview. Ask the client about their business goals, target users, and main challenges. Ask one focused question.",
         ),
-      );
+      ]);
 
       return interrupt({
         question: question.content.toString(),
@@ -59,11 +55,11 @@ export function createInterviewAgentNode(deps: InterviewAgentDeps = {}) {
       });
 
       const readinessModel = getChatModel("Interview Agent");
-      const readinessCheck = await readinessModel.invoke(
+      const readinessCheck = await readinessModel.invoke([
         new HumanMessage(
           "Based on the business analysis conversation so far, do you have enough information to extract detailed requirements? Respond only with YES or NO.",
         ),
-      );
+      ]);
 
       const isReady = readinessCheck.content.toString().toUpperCase().includes("YES");
 

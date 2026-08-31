@@ -1,4 +1,4 @@
-import type { DocumentArtifact, ProjectStatus } from "@ai-business-analyst/shared-types";
+import type { DocumentArtifact, ProjectStatus, ReviewNote } from "@ai-business-analyst/shared-types";
 import { getDefaultCompiledGraph, compileGraph } from "./graph.js";
 import type { GraphDeps } from "./graph.js";
 import prisma from "@ai-business-analyst/db";
@@ -8,6 +8,8 @@ export interface TurnResult {
   question?: string;
   stage: ProjectStatus;
   finalDocuments?: DocumentArtifact[];
+  /** Review notes written during the documentation/review pass (e.g. unresolved issues). */
+  reviewNotes?: ReviewNote[];
 }
 
 export async function runTurn(
@@ -37,6 +39,8 @@ export async function runTurn(
       gaps: [],
       risks: [],
       finalDocuments: [],
+      reviewNotes: [],
+      revisionCount: 0,
       nextAgent: undefined,
     },
     config,
@@ -50,10 +54,16 @@ export async function runTurn(
       orderBy: { createdAt: "desc" },
     });
 
+    const reviewNotes = await prisma.reviewNote.findMany({
+      where: { projectId },
+      orderBy: { id: "asc" },
+    });
+
     return {
       type: "completed",
       stage,
       finalDocuments: documents,
+      reviewNotes,
     };
   }
 

@@ -9,8 +9,8 @@ export async function invokeWithTools(
   input: { messages: BaseMessage[] } | BaseMessage[],
 ): Promise<string> {
   const messages = Array.isArray(input) ? input : input.messages;
-  const boundModel = model.bindTools(tools);
-  const modelResult = await boundModel.invoke({ messages });
+  const boundModel = model.bindTools(tools as any);
+  const modelResult = await boundModel.invoke(messages);
 
   if (!modelResult.tool_calls || modelResult.tool_calls.length === 0) {
     return modelResult.content.toString();
@@ -34,11 +34,11 @@ export async function invokeWithTools(
     }),
   );
 
-  const finalResult = await boundModel.invoke({ messages: [
+  const finalResult = await boundModel.invoke([
     ...messages,
     modelResult,
     ...toolMessages,
-  ]});
+  ]);
 
   return finalResult.content.toString();
 }

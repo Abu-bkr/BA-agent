@@ -30,10 +30,10 @@ export function buildGraph(deps: GraphDeps = {}) {
   graph.addNode("documentation_agent", createDocumentationAgentNode());
   graph.addNode("review_agent", createReviewAgentNode());
 
-  graph.addEdge(START, "planner");
+  graph.addEdge(START as any, "planner" as any);
 
   graph.addConditionalEdges(
-    "planner",
+    "planner" as any,
     (state: AgentStateType) => state.nextAgent || "END",
     {
       "Interview Agent": "interview_agent",
